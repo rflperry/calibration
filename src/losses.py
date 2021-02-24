@@ -5,6 +5,7 @@ import numpy as np
 def margin_loss(margins, activations, y):
     region = np.unique(np.hstack(activations), axis=0, return_inverse=True)[1]
     region_losses = []
+    y = y.numpy()
     for r in np.unique(region):
         idx = np.where(region == r)[0]
         y_pred = np.bincount(y[idx]).argmax()
@@ -130,5 +131,7 @@ def pseudo_entropy_loss(margins, activations, y):
 
 def softmax_loss(logits, y, temp=1):
     logits = logits / temp
+    if isinstance(y, (np.ndarray, list)):
+        y = tf.one_hot(y, depth=len(np.unique(y)))
     losses = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=y)
     return tf.reduce_mean(losses)

@@ -5,43 +5,51 @@ from tensorflow.keras import datasets, layers, models
 class Linear(layers.Layer):
     """y = w.x + b"""
 
-    def __init__(self, units=32):
+    def __init__(self, units=32, activation=None):
         super().__init__()
         self.units = units
+        self.activation = activation
 
     def build(self, input_shape):
         self.w = self.add_weight(
             shape=(input_shape[-1], self.units),
-            initializer="random_normal",
+            initializer="glorot_uniform",
             trainable=True,
         )
         self.b = self.add_weight(
-            shape=(self.units,), initializer="random_normal", trainable=True
+            shape=(self.units,), initializer="glorot_uniform", trainable=True
         )
 
     def call(self, inputs):
-        return tf.matmul(inputs, self.w) + self.b
+        out = tf.matmul(inputs, self.w) + self.b
+        if self.activation:
+            out = self.activation(out)
+        return out
 
     def margin_distances(self, x, positive=True):
-        dists = self.call(x)
+        dists = tf.matmul(x, self.w) + self.b
         return dists
 
 
 class ReluNet(layers.Layer):
     """Simple stack of Linear layers."""
 
-    def __init__(self, layer_sizes, act=tf.nn.relu, normed_output=False):
+    def __init__(self, layer_sizes, act=tf.keras.activations.relu,
+                 normed_output=False, out_act=None):
         super().__init__()
-        self.layers = [Linear(units) for units in layer_sizes]
+        self.layers = [Linear(units, act) for units in layer_sizes[:-1]]
+        if out_act:
+            self.layers.append(Linear(layer_sizes[-1], out_act))
+        else:
+            self.layers.append(Linear(layer_sizes[-1], act))
         self.act = act
+        self.out_act = out_act
         self.normed_output = normed_output
 
     def call(self, inputs):
         x = inputs
         for i, layer in enumerate(self.layers):
             x = layer(x)
-            if i < len(self.layers) - 1:
-                x = self.act(x)
         if self.normed_output:
             x, _ = tf.linalg.normalize(x, axis=1)
         return x
@@ -57,7 +65,7 @@ class ReluNet(layers.Layer):
     def margin_distances(self, x, positive=True):
         dists = []
         for i, layer in enumerate(self.layers):
-            x = layer(x)
+            x = layer.margin_distances(x)
             # since matmult is out = x @ w + b
             dist = x / tf.norm(layer.w, axis=0, keepdims=True)
             if positive:
@@ -74,6 +82,7 @@ class EmbeddingNet(layers.Layer):
     Embeds the data in some output space. Can then output the embeddings
     or classify by adding a classification layer
     """
+
     def __init__(
         self,
         model=None,
